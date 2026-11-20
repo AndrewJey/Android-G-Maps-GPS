@@ -61,16 +61,22 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
+        if (locationManager == null) {
+            resultado.setText("Servicio de ubicación no disponible en este dispositivo.");
+            return;
+        }
+
         /****Si no esta activado el GPS lo enciende****/
-        if ( !locationManager.isProviderEnabled( LocationManager.GPS_PROVIDER ) ) {
+        if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
             AlertNoGps();
         }
 
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-
-            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-
+            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+                    && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
+                        1001);
                 return;
             } else {
                 location = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
@@ -89,21 +95,18 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
             @Override
             public void onStatusChanged(String provider, int status, Bundle extras) {
-
             }
 
             @Override
             public void onProviderEnabled(String provider) {
-
             }
 
             @Override
             public void onProviderDisabled(String provider) {
-
             }
         };
 
-        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER,0,0,locationListener);
+        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000L, 10f, locationListener);
 
 
         /* Datos de los proveedores */
@@ -199,87 +202,98 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     @Override
-    public void onClick(View v) {
-
-        switch (v.getId()){
-
-            case R.id.datos:
-                hiloconexion = new ObtenerWebService();
-                hiloconexion.execute(latitud.getText().toString(),longitud.getText().toString());   // Parámetros que recibe doInBackground
-                break;
-
-            default:
-                break;
-
+    protected void onDestroy() {
+        super.onDestroy();
+        if (alert != null && alert.isShowing()) {
+            alert.dismiss();
         }
+        if (hiloconexion != null && hiloconexion.getStatus() != AsyncTask.Status.FINISHED) {
+            hiloconexion.cancel(true);
+        }
+        if (locationManager != null && locationListener != null) {
+            try {
+                locationManager.removeUpdates(locationListener);
+            } catch (SecurityException ignored) {
+            }
+        }
+    }
 
+    @Override
+    public void onClick(View v) {
+        if (v.getId() == R.id.datos) {
+            String latText = latitud.getText().toString().trim().replace(',', '.');
+            String lonText = longitud.getText().toString().trim().replace(',', '.');
+            try {
+                double latVal = Double.parseDouble(latText);
+                double lonVal = Double.parseDouble(lonText);
+                if (latVal < -90.0 || latVal > 90.0 || lonVal < -180.0 || lonVal > 180.0) {
+                    resultado.setText("Coordenadas fuera de rango (lat: -90..90, lon: -180..180).");
+                    return;
+                }
+                hiloconexion = new ObtenerWebService();
+                hiloconexion.execute(String.valueOf(latVal), String.valueOf(lonVal));
+            } catch (NumberFormatException ex) {
+                resultado.setText("Ingrese latitud y longitud numéricas válidas.");
+            }
+        }
     }
 
     public class ObtenerWebService extends AsyncTask<String, Integer, String> {
 
         @Override
         protected String doInBackground(String... params) {
+            if (params == null || params.length < 2) {
+                return "Faltan coordenadas para consultar.";
+            }
 
-            String cadena = "http://maps.googleapis.com/maps/api/geocode/json?latlng=";
-
-
-            cadena = cadena + params[0];
-            cadena = cadena + ",";
-            cadena = cadena + params[1];
-            cadena = cadena + "&sensor=false";
-
-
+            String cadena = "https://maps.googleapis.com/maps/api/geocode/json?latlng="
+                    + params[0] + "," + params[1];
             String devuelve = "";
-
-            URL url = null; // Url de donde queremos obtener información
+            HttpURLConnection connection = null;
+            BufferedReader reader = null;
             try {
-                url = new URL(cadena);
-                HttpURLConnection connection = (HttpURLConnection) url.openConnection(); //Abrir la conexión
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0" +
-                        " (Linux; Android 1.5; es-ES) Ejemplo HTTP");
-                //connection.setHeader("content-type", "application/json");
+                URL url = new URL(cadena);
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setConnectTimeout(10000);
+                connection.setReadTimeout(10000);
+                connection.setRequestProperty("User-Agent", "Android-GPS-Client/1.0");
 
                 int respuesta = connection.getResponseCode();
                 StringBuilder result = new StringBuilder();
 
-                if (respuesta == HttpURLConnection.HTTP_OK){
-
-
-                    InputStream in = new BufferedInputStream(connection.getInputStream());  // preparo la cadena de entrada
-
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(in));  // la introduzco en un BufferedReader
-
-                    // El siguiente proceso lo hago porque el JSONOBject necesita un String y tengo
-                    // que tranformar el BufferedReader a String. Esto lo hago a traves de un
-                    // StringBuilder.
+                if (respuesta == HttpURLConnection.HTTP_OK) {
+                    InputStream in = new BufferedInputStream(connection.getInputStream());
+                    reader = new BufferedReader(new InputStreamReader(in, "UTF-8"));
 
                     String line;
                     while ((line = reader.readLine()) != null) {
-                        result.append(line);        // Paso toda la entrada al StringBuilder
+                        result.append(line);
                     }
 
-                    //Creamos un objeto JSONObject para poder acceder a los atributos (campos) del objeto.
-                    JSONObject respuestaJSON = new JSONObject(result.toString());   //Creo un JSONObject a partir del StringBuilder pasado a cadena
-                    //Accedemos al vector de resultados
-                    JSONArray resultJSON = respuestaJSON.getJSONArray("results");   // results es el nombre del campo en el JSON
+                    JSONObject respuestaJSON = new JSONObject(result.toString());
+                    JSONArray resultJSON = respuestaJSON.optJSONArray("results");
 
-                    //Vamos obteniendo todos los campos que nos interesen.
-                    //En este caso obtenemos la primera dirección de los resultados.
-                    String direccion="SIN DATOS PARA ESA LONGITUD Y LATITUD";
-                    if (resultJSON.length()>0){
-                        direccion = resultJSON.getJSONObject(0).getString("formatted_address");    // dentro del results pasamos a Objeto la seccion formated_address
+                    String direccion = "SIN DATOS PARA ESA LONGITUD Y LATITUD";
+                    if (resultJSON != null && resultJSON.length() > 0) {
+                        direccion = resultJSON.getJSONObject(0).optString("formatted_address", direccion);
                     }
-                    devuelve = "Dirección: " + direccion;   // variable de salida que mandaré al onPostExecute para que actualice la UI
-
+                    devuelve = "Dirección: " + direccion;
+                } else {
+                    devuelve = "Error HTTP al consultar geocodificación (" + respuesta + ")";
                 }
-
-
             } catch (MalformedURLException e) {
-                e.printStackTrace();
+                devuelve = "URL inválida: " + e.getMessage();
             } catch (IOException e) {
-                e.printStackTrace();
+                devuelve = "Error de red: " + e.getMessage();
             } catch (JSONException e) {
-                e.printStackTrace();
+                devuelve = "Error procesando respuesta JSON: " + e.getMessage();
+            } finally {
+                if (reader != null) {
+                    try { reader.close(); } catch (IOException ignored) {}
+                }
+                if (connection != null) {
+                    connection.disconnect();
+                }
             }
             return devuelve;
         }

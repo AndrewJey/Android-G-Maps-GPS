@@ -30,3 +30,11 @@ Inventario y compilaciones locales del 2026-11-15. Una compilación correcta no 
 
 `.gitignore` excluye credenciales locales, estado del editor y salidas de las herramientas detectadas. No deja de versionar archivos que ya estaban en Git. Los manifiestos, archivos de bloqueo, recursos fuente y scripts de esquema forman parte del código.
 <!-- local-development:end -->
+
+
+<!-- improvements-20261119:start -->
+## Mejoras y verificación — 2026-11-19 (Seguridad HTTPS, validación de coordenadas y gestión de ciclo de vida GPS)
+
+- **Cambios:** Actualizado `GPS-master` `MainActivity.java` para solicitar permisos en tiempo de ejecución, espaciar `requestLocationUpdates` (`5000ms`/`10m`), liberar el `LocationListener` y cancelar `AsyncTask` en `onDestroy`, validar rangos de latitud/longitud, usar HTTPS con timeouts y cerrar flujos en `finally`.
+- **Validación:** Verificación estructural y de reglas de seguridad/ciclo de vida sobre `GPS-master/.../MainActivity.java`.
+<!-- improvements-20261119:end -->
